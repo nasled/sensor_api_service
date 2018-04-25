@@ -1,0 +1,71 @@
+# test_server.tavern.yaml
+
+---
+
+test_name: Clean Database
+
+stages:
+  - name: Make sure that db has been truncated
+    request:
+      url: http://localhost:8088
+      method: DELETE
+      headers:
+        content-type: application/json
+    response:
+      status_code: 202
+
+---
+
+test_name: Check Upload Sensor Endpoint
+
+stages:
+  - name: Make sure that endpoint writes to db
+    request:
+      url: http://localhost:8088
+      json:
+        device_uuid: b21ad0676f26439482cc9b1c7e827de4
+        sensor_type: humidity
+        sensor_value: 12.0
+        sensor_reading_time: 1510093444
+      method: POST
+      headers:
+        content-type: application/json
+    response:
+      status_code: 202
+
+  - name: Make sure that endpoint has validation
+    request:
+      url: http://localhost:8088
+      json:
+        device_uuid: b21ad0676f26439482cc9b1c7e827de4
+        sensor_type: pressure
+        sensor_value: 122.0
+        sensor_reading_time: 1510093444
+      method: POST
+      headers:
+        content-type: application/json
+    response:
+      status_code: 422
+      body:
+        error: Wrong type
+
+---
+
+test_name: Check Retrive Sensor Data
+
+stages:
+  - name: Make sure data has been fetched from DB
+    request:
+      url: http://localhost:8088
+      json:
+        device_uuid: b21ad0676f26439482cc9b1c7e827de4
+        sensor_type: humidity
+        start_time: 1
+        end_time: 211111111111
+      method: GET
+      headers:
+        content-type: application/json
+    response:
+      status_code: 200
+      body:
+        bundles: [["b21ad0676f26439482cc9b1c7e827de4", "humidity", 12.0, 1510093444]]
