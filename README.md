@@ -24,7 +24,7 @@ pipenv update
 ```
 * Run service
 ```
-./python sensor-api.py 
+./python sensor-api.py &
 ```
 * Run tests
 ```
