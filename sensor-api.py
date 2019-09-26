@@ -2,14 +2,30 @@ from gevent.pywsgi import WSGIServer
 import json
 import sqlite3
 import re
+import threading
 
 
 # init db connection
 conn = sqlite3.connect('db.sqlite')
-c = conn.cursor()
+# c = conn.cursor()
+# synchronization
+lock = threading.Lock()
+
+def create_table_if_required(table):
+    check_table_query = "SELECT name FROM sqlite_master WHERE type='table' AND name='{0}'".format(table)
+    create_table_query = "CREATE TABLE {0} (device_uuid varchar(32), sensor_type varchar(32), sensor_value real, sensor_reading_time integer)".format(table)
+
+    with conn:
+        lock.acquire(True)
+        c = conn.cursor()
+        c.execute(check_table_query)
+        if c.fetchone() is None:
+            c.execute(create_table_query)
+        lock.release()
 
 # handle requests
 def application(env, start_response):
+    create_table_if_required("sensor_data")
     wsgi_input = env['wsgi.input'].read()
     
     if env['REQUEST_METHOD'] == 'GET':
@@ -32,9 +48,14 @@ def application(env, start_response):
             
             if "device_uuid" in json_request and re.match("^[a-z0-9]*$", json_request['device_uuid']):
                 device_uuid = json_request['device_uuid']
-            
-        entries = c.execute('select * from sensor_data where sensor_reading_time > ? and sensor_reading_time < ? and sensor_type = ? and device_uuid = ?', 
-                            [start_time, end_time, sensor_type, device_uuid])
+
+        with conn:
+            lock.acquire(True)
+            c = conn.cursor()
+            entries = c.execute('select * from sensor_data where sensor_reading_time > ? and sensor_reading_time < ? and sensor_type = ? and device_uuid = ?',
+                                [start_time, end_time, sensor_type, device_uuid])
+            conn.commit()
+            lock.release()
 
         json_response = []
         for entry in entries:
@@ -72,10 +93,14 @@ def application(env, start_response):
             return [b'{"error":"Wrong reading time"}']
 
         try:
-            query = "insert into sensor_data values('{0}', '{1}', {2}, {3});"\
-                .format(json_request['device_uuid'], json_request['sensor_type'], json_request['sensor_value'], json_request['sensor_reading_time'])
-            c.execute(query)
-            conn.commit()
+            with conn:
+                lock.acquire(True)
+                c = conn.cursor()
+                query = "insert into sensor_data values('{0}', '{1}', {2}, {3});"\
+                    .format(json_request['device_uuid'], json_request['sensor_type'], json_request['sensor_value'], json_request['sensor_reading_time'])
+                c.execute(query)
+                conn.commit()
+                lock.release()
         except:
             start_response('500 Internal Server Error', [('Content-Type', 'application/json')])
             return [b'Could not write to DB']
@@ -85,8 +110,12 @@ def application(env, start_response):
     
     # debug
     elif env['REQUEST_METHOD'] == 'DELETE':
-        c.execute('DELETE FROM sensor_data;')
-        conn.commit()
+        with conn:
+            lock.acquire(True)
+            c = conn.cursor()
+            c.execute('DELETE FROM sensor_data;')
+            conn.commit()
+            lock.release()
         start_response('202 Accepted', [('Content-Type', 'application/json')])
         return []
 
